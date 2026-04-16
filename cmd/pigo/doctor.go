@@ -83,6 +83,7 @@ func collectDoctorChecks(home string, cfg config.Config) []doctorCheck {
 	}
 
 	checks = append(checks, checkPiExtension(home))
+	checks = append(checks, checkPiOllamaProvider(home))
 	checks = append(checks, checkClaudeSkill(home))
 	return checks
 }
@@ -160,6 +161,24 @@ func checkEmbeddingModel(cfg config.Config) doctorCheck {
 func checkPiExtension(home string) doctorCheck {
 	path := filepath.Join(home, ".pi", "extensions", "pigo.ts")
 	c := doctorCheck{Name: "pi extension"}
+
+	if _, err := os.Stat(path); err != nil {
+		c.Detail = "not installed"
+		c.Fix = "run 'pigo install'"
+		return c
+	}
+
+	c.OK = true
+	c.Detail = fmt.Sprintf("installed (%s)", path)
+	return c
+}
+
+// checkPiOllamaProvider verifies the Ollama-as-pi-model-provider extension
+// that ships alongside the main vault extension. They're installed together
+// but checked separately so a partial install shows up clearly.
+func checkPiOllamaProvider(home string) doctorCheck {
+	path := filepath.Join(home, ".pi", "extensions", "ollama.js")
+	c := doctorCheck{Name: "pi ollama provider"}
 
 	if _, err := os.Stat(path); err != nil {
 		c.Detail = "not installed"

@@ -35,13 +35,19 @@ func runInstall(cmd *cobra.Command, args []string) error {
 
 	var installed []string
 
-	// 1. Create ~/.pigo/ structure.
+	// 1. Create ~/.pigo/ structure. Only report creation when the directory
+	// didn't exist — matches the "wrote default config.toml" pattern below so
+	// the install summary shows only what actually changed on re-runs.
 	pigoDir := filepath.Join(home, ".pigo")
 	vaultDir := config.Default().Vault.Path
+	_, statErr := os.Stat(pigoDir)
+	firstCreate := os.IsNotExist(statErr)
 	if err := os.MkdirAll(vaultDir, 0755); err != nil {
 		return fmt.Errorf("create vault directory: %w", err)
 	}
-	installed = append(installed, fmt.Sprintf("created %s", pigoDir))
+	if firstCreate {
+		installed = append(installed, fmt.Sprintf("created %s", pigoDir))
+	}
 
 	// Write default config if it doesn't exist.
 	configPath := filepath.Join(pigoDir, "config.toml")
