@@ -12,7 +12,8 @@ type SearchResult struct {
 
 // Search finds notes by combining fuzzy title/tag matching with semantic search.
 // Results are merged and deduplicated, with the best score for each note kept.
-// If Ollama or sqlite-vec is unavailable, fuzzy-only results are returned with a warning.
+// If Ollama is unavailable, fuzzy-only results are returned with a warning.
+// sqlite-vec is statically bundled so vector search is always available.
 func (s *Service) Search(query string, limit int) (*SearchResult, error) {
 	if limit <= 0 {
 		limit = 10
@@ -26,7 +27,7 @@ func (s *Service) Search(query string, limit int) (*SearchResult, error) {
 		return nil, err
 	}
 
-	// Try semantic search (may fail if Ollama is down or sqlite-vec not loaded).
+	// Try semantic search (requires Ollama for the query embedding).
 	var semantic []db.SearchResult
 	embedding, embedErr := s.ollama.Embed(query)
 	if embedErr != nil {
@@ -35,7 +36,7 @@ func (s *Service) Search(query string, limit int) (*SearchResult, error) {
 		var vecErr error
 		semantic, vecErr = s.db.VectorSearch(embedding, limit)
 		if vecErr != nil {
-			warnings = append(warnings, "vector search unavailable (sqlite-vec not loaded) — showing fuzzy results only")
+			warnings = append(warnings, "vector search failed — showing fuzzy results only")
 		}
 	}
 

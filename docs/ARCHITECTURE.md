@@ -261,7 +261,8 @@ model = "nomic-embed-text"    # embedding model
 
 [server]
 host = "127.0.0.1"
-port = 9876
+port = 14159
+pipe_port = 14160
 
 [git]
 auto_commit = true

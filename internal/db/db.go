@@ -8,8 +8,17 @@ import (
 	"os"
 	"path/filepath"
 
+	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 	_ "github.com/mattn/go-sqlite3" // SQLite driver, imported for side effects
 )
+
+// sqlite-vec is auto-registered at package load so every sqlite3 connection
+// opened through database/sql has vec_distance_cosine and friends available.
+// Bundling it this way means semantic search works out of the box — users
+// never see or install a separate extension file.
+func init() {
+	sqlite_vec.Auto()
+}
 
 // DB wraps a sql.DB connection with pigo-specific operations.
 type DB struct {

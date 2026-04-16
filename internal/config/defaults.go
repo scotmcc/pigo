@@ -31,8 +31,8 @@ func Default() Config {
 		},
 		Server: ServerConfig{
 			Host:     "127.0.0.1",
-			Port:     9876,
-			PipePort: 9877,
+			Port:     14159,
+			PipePort: 14160,
 		},
 		Git: GitConfig{
 			AutoCommit: true,

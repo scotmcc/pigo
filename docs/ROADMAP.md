@@ -2,7 +2,7 @@
 
 Milestone-driven, not date-driven. Each phase delivers something usable. Later phases depend on earlier ones but each phase stands on its own.
 
-**Status:** Phases 0–3 complete (vault, server, async pipe, pi extension, ollama extension, claude skill, install system, build/release pipeline). Working on v0.1.0 release readiness (tests, auto-init, polish).
+**Status:** Phases 0–3 complete (vault, server, async pipe, pi extension, ollama extension, claude skill, install system, build/release pipeline). Phase 3c (knowledge graph), Phase 3d (soul system), Phase 5 (web import), and Phase 5b (web search) also complete. Phase 4 (facts) is deferred pending design review. Jobs (Phase 6) is the next major phase. Working toward v0.1.0 release readiness in parallel — feature polish is largely in place (auto-init, graceful Ollama fallback, `--json` output, vault tests all landed); the remaining work is **install automation**: bundle sqlite-vec, detect and optionally pull/install Ollama + embedding model + pi, and ship `pigo doctor` for one-glance health. Principle: ask-then-offer, never make the user figure it out.
 
 ---
 
@@ -154,7 +154,63 @@ This is the user-facing integration that makes pigo worth installing.
 
 ---
 
-## Phase 4 — Fact Extraction + Consolidation
+## Phase 3c — Knowledge Graph **[DONE]**
+
+**Delivers:** The vault becomes a real knowledge graph. Notes connect to each other automatically, explicitly, and in both directions.
+
+**What was built:**
+
+### Auto-discovered relationships (`internal/vault/relations.go`)
+- After each write, the new note's body is used as a search query against the vault
+- Top N semantically similar notes (default 5) become `relates_to` entries in the frontmatter
+- The AI doesn't have to remember to link — similarity does it automatically
+
+### Explicit wiki links (`internal/vault/wikilinks.go`)
+- Obsidian-style `[[slug]]` and `[[slug|display]]` syntax detected in note bodies
+- Referenced slugs stored as `links_to` in frontmatter
+- Lets the AI (or a human editor) declare connections the graph should know about
+
+### Backlinks + combined Links API (`internal/vault/relations.go`)
+- `Backlinks(noteID)` — reverse lookup across `relates_to` and `links_to`
+- `Links(noteID)` — returns `relates_to`, `links_to`, and `backlinks` together
+
+### Tag aggregation (`internal/vault/tags.go`)
+- `Tags()` — all tags across the vault with note counts, sorted by frequency
+
+### CLI + command surface
+- `pigo vault links <id>` — show all connections for a note
+- `pigo vault tags` — browse tag cloud
+- Registered commands: `vault.links`, `vault.tags`
+
+**Dependencies:** Phase 1 (vault), Phase 2 (command registry).
+
+---
+
+## Phase 3d — Soul System **[DONE]**
+
+**Delivers:** pigo is not an anonymous tool — it has an identity, a welcome flow, and a way to teach the AI about itself and the user. Replaces and expands on the narrow "System Prompt Injection" bullet from Phase 3.
+
+**What was built:**
+
+### Identity assets (`internal/assets/prompts/`)
+- `soul_preamble.md` — the core identity/persona prompt injected into AI sessions
+- `welcome.md` — the first-run greeting shown to new users
+
+### Soul command (`cmd/pigo/soul.go`, `internal/commands/soul.go`)
+- `pigo soul` — displays identity + welcome content
+- Registered `soul` command available through the server/pipe for extensions to fetch
+
+### System prompt injection
+- pi extension pulls the soul preamble on `before_agent_start`
+- Users can still override via `~/.pigo/system.md`; the soul preamble is the default
+
+**Dependencies:** Phase 2 (command registry), Phase 3 (extension injection point).
+
+---
+
+## Phase 4 — Fact Extraction + Consolidation **[DEFERRED — under review]**
+
+> **Status note (2026-04-16):** With the knowledge graph (Phase 3c) in place — auto-`relates_to`, wiki links, backlinks, tag aggregation — a large part of what "facts" was intended to deliver (topic clustering, cross-note connections) is already covered at the note level. Facts would still add structured extraction (importance scores, entities, queryable rows with source linkage), but whether that's worth the complexity depends on real usage patterns. This phase is paused pending a design review after the jobs system lands. Do not build this without revisiting scope first.
 
 **Delivers:** The second layer of intelligence. Raw notes become structured facts. The knowledge compounds over time.
 
@@ -188,65 +244,96 @@ This is the user-facing integration that makes pigo worth installing.
 
 ---
 
-## Phase 5 — Web Fetch + Import
+## Phase 5 — Web Fetch + Import **[DONE]**
 
 **Delivers:** Save web content directly into the vault. The AI can capture reference material from URLs without leaving the conversation.
 
-**What gets built:**
+**What was built:**
 
-### Layer 1
-- `internal/fetch/` — HTTP client that fetches a URL and returns HTML
-- HTML → markdown converter (regex-based, like old pigo — no DOM parser needed)
+### Layer 1 (`internal/fetch/`)
+- HTTP client that fetches a URL and returns HTML
+- HTML → markdown converter (regex-based, no DOM parser) with tests
 
-### Layer 2
+### Layer 2 (`internal/vault/import.go`)
 - `vault.import` command — fetch URL, convert to markdown, save as vault note with source URL in frontmatter
-- Configurable: keep raw HTML, convert to markdown, or both
 - Auto-tag with domain name and "imported" tag
 
 ### Layer 3
-- `pigo vault import <url>` — CLI command
-- Extension tool: `vault_import` — AI can save web pages as notes
-
-**Exit criteria:**
-- `pigo vault import https://example.com/article` creates a well-formatted vault note
-- Imported note has proper frontmatter with source URL
-- Extension can import URLs during a conversation
+- `pigo vault import <url>` — CLI command (`cmd/pigo/vault_import.go`)
+- Registered command `vault.import` available over HTTP/pipe for extensions
 
 **Dependencies:** Phase 1 (vault).
 
 ---
 
-## Phase 6 — Job System
+## Phase 5b — Web Search **[DONE]**
 
-**Delivers:** Background task scheduling. The server can run recurring work automatically.
+**Delivers:** The AI can search the open web from within a session, not just the vault. Combined with Phase 5, it can search → import → remember in one flow.
+
+**What was built:**
+
+### Layer 1 (`internal/search/`)
+- HTTP client targeting a configurable SearXNG instance
+- Endpoint URL configurable via `~/.pigo/config.toml`
+- Self-hostable, no proprietary search API dependency
+
+### Layer 2 / Layer 3
+- Registered command `web.search` (`internal/commands/web_search.go`, `internal/commands/web_deps.go`)
+- `pigo web search <query>` CLI (`cmd/pigo/web.go`, `cmd/pigo/web_search.go`)
+- Available through the pi extension as a native tool
+
+**Dependencies:** Phase 2 (command registry). Pairs with Phase 5 for search → import workflows.
+
+---
+
+## Phase 6 — Jobs (Agent-Spawned Background Work) **[NEXT]**
+
+**Delivers:** A unified system for running long agent sessions outside the current conversation. One model, two triggers — "run now" (kicked off mid-session so the chat can continue) and "run on schedule" (cron recurring or future-dated). The user and the front-line AI stay lightweight and chatty while the real work happens in a background agent session.
+
+**Design principle — pigo is agent-agnostic.** A job is *argv + a prompt*. pigo does not care whether the launched binary is `claude`, `pi`, `bash`, or anything else. The orchestrator pattern (research → plan → implement → review with sub-agents) lives entirely in the prompt, not in pigo. This keeps the infrastructure small and lets orchestration patterns evolve without schema or code changes.
+
+**Typical flow:**
+1. User and front-line AI chat through what should happen
+2. AI crafts an orchestrator prompt
+3. `pigo jobs run --prompt <...> --target claude` — returns a job id, keeps going
+4. The orchestrator agent (in its own session) spawns research / planning / implementation / review sub-agents as it sees fit
+5. pigo emits a "finished" event over the pipe
+6. Front-line AI spot-checks the result and reports back
 
 **What gets built:**
 
 ### Layer 1
-- Cron expression parser (library or built-in)
-- Job storage in SQLite
+- `jobs` table in SQLite: `id, prompt, command, args, status, created_at, started_at, finished_at, exit_code, output_path, schedule, next_run_at`
+- Cron expression parser (library TBD — likely `robfig/cron`)
 
-### Layer 2
-- `internal/jobs/` — job runner:
-  - System jobs (always running): nightly consolidation, relationship refresh
-  - Dynamic jobs (user-created): custom schedules wrapping any registered command
-  - Job lifecycle: create, pause, resume, cancel
-  - Execution tracking: last run, next run, last error
+### Layer 2 (`internal/jobs/`)
+- **Launcher** — fork/exec the target binary, stream stdout+stderr to `~/.pigo/jobs/<id>.log`, return the job id immediately
+- **Supervisor** — watch running processes, detect exit, update status and exit code
+- **Orphan recovery** — on `pigo serve` restart, reconcile processes that were running when the daemon stopped
+- **Scheduler loop** — evaluate cron expressions, call the launcher when a job is due
+- **Notifier** — emit async events over the persistent pipe (`started`, `finished`, `failed`) so extensions can wake up the AI when a job completes
 
 ### Layer 3
-- `pigo jobs list` — show all jobs with status
-- `pigo jobs create --name "..." --cron "..." --command "..."`
-- `pigo jobs pause/resume/cancel <id>`
-- `pigo jobs run <name>` — execute immediately
-- Extension tools for job management
+- `pigo jobs run --prompt "..." --target <claude|pi|bash> [--at <time>|--cron <expr>]`
+- `pigo jobs list` — everything with status, schedule, next run
+- `pigo jobs status <id>`
+- `pigo jobs output <id> [--tail N]`
+- `pigo jobs stop <id>`
+- `pigo jobs delete <id>`
+- Registered commands (`jobs.run`, `jobs.list`, `jobs.status`, `jobs.output`, `jobs.stop`, `jobs.delete`) so extensions can expose job management as native AI tools
 
 **Exit criteria:**
-- Server runs nightly consolidation automatically
-- `pigo jobs list` shows scheduled jobs with next execution time
-- Jobs survive server restart
-- Job failures are logged, don't crash the server
+- An agent session can launch a job, keep chatting, and get a pipe notification on completion
+- Cron expression schedules a job that survives `pigo serve` restarts
+- Launched process is reparented to the daemon — terminal crash / network drop does not kill it
+- `pigo jobs list` shows live state, schedule, and next-run time
+- Job failures are logged and surfaced, never crash the server
 
-**Dependencies:** Phase 2 (server), Phase 4 (consolidation is the first real job).
+**Explicitly deferred (decide after we have real usage):**
+- **Prompts-as-vault-notes.** Storing orchestrator prompts in the vault would give us versioning + knowledge-graph connections, but it raises an identity question — is a prompt a user-facing note or a system-level skill? And it would leak into vault search. Revisit once we have a few real orchestrator prompts written.
+- **Built-in orchestrator types** (research / plan / implement / review as first-class concepts in pigo). Keep as prompt patterns for now.
+
+**Dependencies:** Phase 2 (server + commands), Phase 2b (pipe for streaming notifications).
 
 ---
 
@@ -336,18 +423,21 @@ These are ideas, not commitments. Each becomes its own phase when the time comes
 Phase 0 (scaffold) ✓
   └── Phase 1 (vault) ✓
         ├── Phase 2 (server) ✓
-        │     └── Phase 2b (async + pipe)
-        │           └── Phase 3 (pi extension)
+        │     └── Phase 2b (async + pipe) ✓
+        │           └── Phase 3 (pi extension) ✓
+        │                 ├── Phase 3d (soul system) ✓
         │                 └── Phase 7 (context awareness)
-        ├── Phase 3b (claude code skill) — can start anytime after Phase 1
-        ├── Phase 4 (facts)
+        ├── Phase 3b (claude code skill) ✓
+        ├── Phase 3c (knowledge graph) ✓
+        ├── Phase 4 (facts) [DEFERRED]
         │     └── Phase 8 (background intelligence)
-        ├── Phase 5 (web fetch + import)
-        └── Phase 6 (jobs)
+        ├── Phase 5 (web fetch + import) ✓
+        │     └── Phase 5b (web search) ✓
+        └── Phase 6 (jobs)  ← next
               └── Phase 8 (background intelligence)
 ```
 
-Phases 3b, 4, and 5 can run in parallel — they're independent of each other.
+Phases 3b, 3c, 3d, 5, and 5b have all landed in parallel with the core server work. Phase 6 (jobs) is the next intended focus. Phase 4 (facts) is on hold — see its section for the design-review note.
 
 ---
 

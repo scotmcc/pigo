@@ -1,6 +1,6 @@
 # pigo
 
-A resident AI knowledge server in Go. Ships as a single binary with automatic integration for [pi](https://github.com/nicholasgasior/pi) and [Claude Code](https://claude.ai/claude-code).
+A resident AI knowledge server in Go. Ships as a single binary with automatic integration for [pi](https://pi.dev) and [Claude Code](https://claude.ai/claude-code).
 
 Pull the repo, build, run. Your AI gets persistent, semantic, versioned memory — not flat files.
 
@@ -12,6 +12,9 @@ make build
 
 # Set up vault + detect & install integrations
 ./pigo install
+
+# Verify everything is wired up (green/red per dependency)
+./pigo doctor
 
 # Write a note
 ./pigo vault write --title "Architecture Decision" --tags "go,architecture" --body "We chose Go for single-binary deployment."
@@ -83,18 +86,18 @@ Notes are plain markdown with YAML frontmatter. Edit them in any editor. The vau
 pigo serve
 ```
 
-Starts an HTTP API (port 9876) and a TCP pipe server (port 9877). The HTTP API accepts JSON commands. The TCP pipe supports persistent connections with async streaming — this is what makes the pi extension work in real-time.
+Starts an HTTP API (port 14159) and a TCP pipe server (port 14160). The HTTP API accepts JSON commands. The TCP pipe supports persistent connections with async streaming — this is what makes the pi extension work in real-time.
 
 ```bash
 # Health check
-curl http://localhost:9876/health
+curl http://localhost:14159/health
 
 # Send a command
-curl -X POST http://localhost:9876/command \
+curl -X POST http://localhost:14159/command \
   -d '{"command": "vault.search", "args": {"q": "architecture"}}'
 
 # Discover all commands
-curl -X POST http://localhost:9876/command \
+curl -X POST http://localhost:14159/command \
   -d '{"command": "system.methods"}'
 ```
 
@@ -115,8 +118,8 @@ model = "nomic-embed-text"
 
 [server]
 host = "127.0.0.1"
-port = 9876
-pipe_port = 9877
+port = 14159
+pipe_port = 14160
 ```
 
 All fields have sensible defaults. Zero config gets you a working vault.

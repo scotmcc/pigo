@@ -52,23 +52,17 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		installed = append(installed, "wrote default config.toml")
 	}
 
-	// 2. Detect pi harness.
-	piExtDir := filepath.Join(home, ".pi", "extensions")
-	if dirExists(piExtDir) {
-		dest := filepath.Join(piExtDir, "pigo.ts")
-		if err := os.WriteFile(dest, []byte(assets.PiExtension), 0644); err != nil {
-			return fmt.Errorf("write pi extension: %w", err)
-		}
-		installed = append(installed, fmt.Sprintf("installed pi extension → %s", dest))
-
-		ollamaDest := filepath.Join(piExtDir, "ollama.js")
-		if err := os.WriteFile(ollamaDest, []byte(assets.OllamaExtension), 0644); err != nil {
-			return fmt.Errorf("write ollama extension: %w", err)
-		}
-		installed = append(installed, fmt.Sprintf("installed ollama provider → %s", ollamaDest))
+	// 2. Check Ollama (embedding model for semantic search).
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
 	}
+	installed = append(installed, ollamaStep(cfg))
 
-	// 3. Detect Claude Code.
+	// 3. Detect and set up pi (install pi itself if needed, then extensions).
+	installed = append(installed, piStep(home)...)
+
+	// 4. Detect Claude Code.
 	claudeDir := filepath.Join(home, ".claude")
 	if dirExists(claudeDir) {
 		skillDir := filepath.Join(claudeDir, "commands")
@@ -86,11 +80,6 @@ func runInstall(cmd *cobra.Command, args []string) error {
 	fmt.Println("pigo install complete:")
 	for _, line := range installed {
 		fmt.Printf("  %s\n", line)
-	}
-
-	if !dirExists(piExtDir) && !dirExists(filepath.Join(home, ".claude")) {
-		fmt.Println("\n  no pi harness or claude code detected — vault is ready, integrations skipped")
-		fmt.Println("  re-run 'pigo install' after installing a harness")
 	}
 
 	return nil
@@ -112,8 +101,8 @@ func writeDefaultConfig(path string) error {
 
 [server]
 # host = "127.0.0.1"
-# port = 9876
-# pipe_port = 9877
+# port = 14159
+# pipe_port = 14160
 
 [git]
 # auto_commit = true

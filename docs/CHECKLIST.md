@@ -56,7 +56,7 @@ Working document. Check items as they're completed.
 - [x] **vault.edit** — load existing, update body/tags, re-chunk, re-embed, re-index, commit
 - [x] **vault.search** — run fuzzy + semantic (graceful when Ollama down), merge and rank
 - [x] **vault.list** — list all notes with title, tags, date
-- [ ] Relationship generation — after write, search for similar notes, populate `relates_to`
+- [x] Relationship generation — after write, search for similar notes, populate `relates_to` (see Phase 3c)
 
 ### Layer 3: CLI Commands
 
@@ -89,7 +89,7 @@ Working document. Check items as they're completed.
 
 ### Persistent Pipe (`internal/server/pipe.go`)
 
-- [x] TCP listener on configurable port (default 9877)
+- [x] TCP listener on configurable port (default 14160)
 - [x] Pipe registration — `{"type": "register_pipe"}`
 - [x] GUID-based routing for async responses
 - [x] Sync commands respond inline, async commands ack + stream updates
@@ -138,6 +138,77 @@ Working document. Check items as they're completed.
 
 ---
 
+## Phase 3c — Knowledge Graph [DONE]
+
+### Auto-relationships (`internal/vault/relations.go`)
+
+- [x] After each write, search vault with note body as query, top N similar notes become `relates_to`
+- [x] `maxRelations` cap (default 5) to keep frontmatter readable
+- [x] Self-exclusion so a note doesn't relate to itself
+- [x] Re-commits frontmatter with a `[relations]` tag in the commit message
+
+### Wiki links (`internal/vault/wikilinks.go`)
+
+- [x] Regex detection of `[[slug]]` and `[[slug|display]]` syntax
+- [x] Slugification + deduplication of detected links
+- [x] Stored as `links_to` in frontmatter
+- [x] Unit tests in `wikilinks_test.go`
+
+### Backlinks + combined Links API
+
+- [x] `Service.Backlinks(noteID)` — reverse lookup across `relates_to` and `links_to`
+- [x] `Service.Links(noteID)` — unified `LinksInfo` struct with all three link types
+- [x] Registered command `vault.links`, CLI `pigo vault links <id>`
+
+### Tags (`internal/vault/tags.go`)
+
+- [x] `Service.Tags()` — aggregate tag counts across the vault, sorted by frequency
+- [x] Registered command `vault.tags`, CLI `pigo vault tags`
+
+---
+
+## Phase 3d — Soul System [DONE]
+
+- [x] `internal/assets/prompts/soul_preamble.md` — identity prompt for AI sessions
+- [x] `internal/assets/prompts/welcome.md` — first-run greeting for new users
+- [x] Assets embedded via `internal/assets/assets.go`
+- [x] `cmd/pigo/soul.go` — CLI command to display soul content
+- [x] `internal/commands/soul.go` — registered `soul` command for extensions
+- [x] pi extension pulls soul preamble on `before_agent_start` (with `~/.pigo/system.md` override still honored)
+
+---
+
+## Phase 5 — Web Fetch + Import [DONE]
+
+### Layer 1 (`internal/fetch/`)
+
+- [x] HTTP client fetches a URL, returns HTML
+- [x] HTML → markdown converter (regex-based, no DOM parser)
+- [x] Unit tests in `markdown_test.go`
+
+### Layer 2 (`internal/vault/import.go`)
+
+- [x] `vault.import` business logic — fetch, convert, save as vault note
+- [x] Source URL stored in frontmatter
+- [x] Auto-tags with domain name and `imported` tag
+
+### Layer 3
+
+- [x] `pigo vault import <url>` (`cmd/pigo/vault_import.go`)
+- [x] Registered command `vault.import` for extensions (`internal/commands/vault_import.go`)
+
+---
+
+## Phase 5b — Web Search [DONE]
+
+- [x] `internal/search/search.go` — SearXNG HTTP client
+- [x] Configurable SearXNG endpoint in `~/.pigo/config.toml`
+- [x] Registered command `web.search` (`internal/commands/web_search.go`, `web_deps.go`)
+- [x] `pigo web search <query>` CLI (`cmd/pigo/web.go`, `cmd/pigo/web_search.go`)
+- [x] Exposed to pi extension as a native AI tool
+
+---
+
 ## Build + Release [DONE]
 
 - [x] `Makefile` with ldflags for version/commit/date injection
@@ -153,13 +224,30 @@ Working document. Check items as they're completed.
 
 ## v0.1.0 Release Readiness [IN PROGRESS]
 
-### Must Have
+### Must Have — Feature Polish
 
-- [ ] **Tests** — vault core (write/read/edit/search), chunking, frontmatter, slug generation
-- [ ] **Auto-init** — first vault command auto-creates `~/.pigo/`, runs migrations, just works
-- [ ] **Graceful Ollama-down** — clear message ("semantic search disabled"), fuzzy still works
-- [ ] **`--json` output** — structured JSON output on vault commands for scripting/extensions
-- [ ] **Better errors** — "note not found", "Ollama not running", no stack traces
+- [x] **Tests** — vault core (`vault_test.go`), chunking (`chunk_test.go`), frontmatter (`frontmatter_test.go`), slug generation (`slug_test.go`), wiki links (`wikilinks_test.go`), web fetch (`markdown_test.go`)
+- [x] **Auto-init** — `cmd/pigo/setup.go` auto-creates `~/.pigo/` and vault dir on first use, runs migrations, prints first-run message
+- [x] **Graceful Ollama-down** — `internal/vault/search.go` falls back to fuzzy with warning when Ollama is unreachable
+- [x] **`--json` output** — `--json` persistent flag honored by all vault commands, `soul`, and `web search`
+- [ ] **Better errors audit** — spot checks show errors are wrapped with `%w` and no stack traces leak, but do a full pass to confirm user-facing messages are clear ("note not found", "Ollama not running", etc.)
+
+### Must Have — Install Automation
+
+> **Principle:** the install should not require the user to "figure anything out." Detect what's present, ask permission before doing anything heavy or system-changing, and if the user declines — tell them the exact command and how to re-run `pigo install`.
+
+- [x] **sqlite-vec bundled** — `asg017/sqlite-vec-go-bindings/cgo` statically linked; `init()` in `internal/db/db.go` calls `sqlite_vec.Auto()` so every connection has the extension. Two tests in `db_test.go` verify `vec_version()` and `vec_distance_cosine`.
+- [x] **Ollama model pull (Ollama present)** — `cmd/pigo/install_ollama.go::ollamaStep`. Detects on-PATH + reachable, asks before pulling, prints exact command on decline, streams `ollama pull` output on accept.
+- [x] **Ollama absent** — `offerOllamaInstall` in `install_ollama.go`. `brew install ollama` on macOS, `curl -fsSL https://ollama.com/install.sh | sh` on Linux, download-page fallback otherwise. Declines and failures both print the exact command and re-run hint.
+- [x] **pi detection + install** — `cmd/pigo/install_pi.go::piStep`. On-PATH or extensions dir → install extensions. Absent + npm → offer `npm install -g @mariozechner/pi-coding-agent`, auto-chain to extension install on success. npm absent → point at nvm/brew with exact commands.
+- [x] **Claude Code detection** — unchanged (file-drop, no external to install). `pigo doctor` surfaces status. No install-time prompt needed.
+- [x] **`pigo doctor`** — `cmd/pigo/doctor.go`. Reports sqlite-vec / Ollama / embedding model / pi extension / Claude skill. Actionable fix per red row. Exit 1 on any failure. Supports `--json` for scripting.
+
+### Should Have
+
+- [x] Relationship generation (`relates_to` in frontmatter) — see Phase 3c
+- [x] Example workflow in README — Quick Start covers write → search → serve
+- [ ] sqlite-vec extension loading — folded into Install Automation above
 
 ### Should Have
 
@@ -169,9 +257,11 @@ Working document. Check items as they're completed.
 
 ---
 
-## Future Phases (not started)
+## Future Phases
 
-### Phase 4 — Fact Extraction
+### Phase 4 — Fact Extraction [DEFERRED — under review]
+
+> The knowledge graph (Phase 3c) already covers connection discovery and topic clustering at the note level. Do not start this work without a design review — confirm what facts would add on top of the graph first.
 
 - [ ] Extraction prompt + LLM inference via Ollama `/api/generate`
 - [ ] Response parser (JSON → fact structs)
@@ -179,18 +269,39 @@ Working document. Check items as they're completed.
 - [ ] CLI: `pigo facts consolidate`, `pigo facts search`, `pigo facts topics`
 - [ ] Extension tools: `fact_search`, `fact_topics`
 
-### Phase 5 — Web Import
+### Phase 6 — Jobs (Agent-Spawned Background Work) [NEXT]
 
-- [ ] `internal/fetch/` — HTTP client + HTML→markdown converter
-- [ ] `vault.import` command — fetch URL, convert, save as vault note
-- [ ] CLI: `pigo vault import <url>`
+**Design notes:** Unified model — one jobs table, two triggers (run-now and cron). pigo is agent-agnostic: a job is argv + a prompt. Orchestrator patterns (research/plan/implement/review) live in the prompt, not in code. Prompts-as-vault-notes is deferred pending real usage.
 
-### Phase 6 — Job System
+### Layer 1
 
-- [ ] Cron framework, job runner goroutine
-- [ ] System jobs (nightly consolidation) + dynamic jobs (user-created)
-- [ ] Job lifecycle: create, pause, resume, cancel
-- [ ] CLI: `pigo jobs list/create/pause/resume/cancel/run`
+- [ ] `jobs` table migration: id, prompt, command, args, status, created_at, started_at, finished_at, exit_code, output_path, schedule, next_run_at
+- [ ] Cron expression parser integration (library choice TBD)
+
+### Layer 2 (`internal/jobs/`)
+
+- [ ] Launcher — fork/exec target, stream stdout+stderr to `~/.pigo/jobs/<id>.log`, return job id immediately
+- [ ] Supervisor — watch running processes, detect exit, update status + exit code
+- [ ] Orphan recovery — on `pigo serve` restart, reconcile previously-running jobs
+- [ ] Scheduler loop — evaluate cron expressions, call launcher when a job is due
+- [ ] Notifier — emit state-change events (`started`, `finished`, `failed`) over the pipe
+
+### Layer 3
+
+- [ ] `pigo jobs run --prompt "..." --target <claude|pi|bash>`
+- [ ] `pigo jobs run ... --at <time>` (future-dated one-off)
+- [ ] `pigo jobs run ... --cron <expr>` (recurring)
+- [ ] `pigo jobs list`
+- [ ] `pigo jobs status <id>`
+- [ ] `pigo jobs output <id> [--tail N]`
+- [ ] `pigo jobs stop <id>`
+- [ ] `pigo jobs delete <id>`
+- [ ] Registered commands for extensions: `jobs.run`, `jobs.list`, `jobs.status`, `jobs.output`, `jobs.stop`, `jobs.delete`
+
+### Deferred (decide later)
+
+- [ ] Prompts-as-vault-notes — revisit after real orchestrator prompts exist
+- [ ] Built-in orchestrator types (research/plan/implement/review as first-class in pigo)
 
 ---
 

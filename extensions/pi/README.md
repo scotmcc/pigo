@@ -1,6 +1,6 @@
 # pigo Pi Extension
 
-Gives the AI native vault tools inside a [pi](https://github.com/nicholasgasior/pi) coding session.
+Gives the AI native vault tools inside a [pi](https://github.com/badlogic/pi-mono) coding session.
 
 ## Install
 
@@ -21,7 +21,7 @@ cp /path/to/pigo/extensions/pi/pigo.ts ~/.pi/extensions/pigo.ts
 
 ## How It Works
 
-The extension connects to the pigo daemon via TCP pipe on port 9877. If the daemon isn't running, it falls back to calling the `pigo` CLI directly.
+The extension connects to the pigo daemon via TCP pipe on port 14160. If the daemon isn't running, it falls back to calling the `pigo` CLI directly.
 
 ### Tools Registered
 

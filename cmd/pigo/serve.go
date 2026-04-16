@@ -38,6 +38,12 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Refuse to start if another pigo is already running — two daemons on the
+	// same HTTP/pipe ports would collide confusingly.
+	if existing, err := readPidFile(cfg); err == nil && processAlive(existing) {
+		return fmt.Errorf("pigo is already running (pid %d) — use 'pigo stop' first", existing)
+	}
+
 	// Wire search client if configured.
 	if cfg.Search.URL != "" {
 		commands.SetSearchClient(search.NewClient(cfg.Search.URL))
@@ -58,6 +64,15 @@ func runServe(cmd *cobra.Command, args []string) error {
 			fmt.Fprintf(os.Stderr, "pipe server error: %v\n", err)
 		}
 	}()
+
+	// Record our PID so 'pigo stop' / 'pigo status' can find us.
+	if err := writePidFile(cfg); err != nil {
+		return fmt.Errorf("write pid file: %w", err)
+	}
+	defer removePidFile(cfg)
+
+	fmt.Printf("pigo serving (pid %d) — HTTP %s:%d, pipe %s:%d\n",
+		os.Getpid(), cfg.Server.Host, cfg.Server.Port, cfg.Server.Host, cfg.Server.PipePort)
 
 	// Wait for shutdown signal.
 	sigCh := make(chan os.Signal, 1)
