@@ -1,17 +1,17 @@
-# Binary (root only — don't ignore cmd/pigo/ source directory)
+# Binary output (root only)
 /pigo
-dist/
+/dist/
 
 # Data files (never check in user data)
 *.db
 *.db-journal
 *.db-wal
 
-# Default vault location if someone runs pigo from the repo
-vault/
+# Default vault data location if someone runs pigo from the repo
+/vault/
 
 # Pi harness source (reference only, not part of this repo)
-pi-mono/
+/pi-mono/
 
 # Node
 node_modules/
@@ -28,6 +28,3 @@ Thumbs.db
 
 # Claude Code local settings (per-user, not project config)
 .claude/settings.local.json
-
-# GoReleaser
-dist/
