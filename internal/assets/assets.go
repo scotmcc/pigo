@@ -21,3 +21,15 @@ var OllamaExtension string
 //
 //go:embed claude/pigo.md
 var ClaudeSkill string
+
+// WelcomePrompt is shown to the AI when no soul file exists.
+// It guides the AI through getting to know the user.
+//
+//go:embed prompts/welcome.md
+var WelcomePrompt string
+
+// SoulPreamble is prepended to the soul file content when injecting
+// into the system prompt. It explains pigo's role and tools.
+//
+//go:embed prompts/soul_preamble.md
+var SoulPreamble string
