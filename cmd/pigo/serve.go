@@ -44,6 +44,17 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("pigo is already running (pid %d) — use 'pigo stop' first", existing)
 	}
 
+	// Pre-bind check so we fail loudly with an actionable message before
+	// kicking off the goroutines. Without this, a port conflict would log
+	// to stderr from a goroutine while the rest of the daemon ran happily
+	// in a half-broken state.
+	if err := checkPortAvailable(cfg, cfg.Server.Port, "HTTP"); err != nil {
+		return err
+	}
+	if err := checkPortAvailable(cfg, cfg.Server.PipePort, "pipe"); err != nil {
+		return err
+	}
+
 	// Wire search client if configured.
 	if cfg.Search.URL != "" {
 		commands.SetSearchClient(search.NewClient(cfg.Search.URL))
