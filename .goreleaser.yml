@@ -1,0 +1,74 @@
+version: 2
+
+project_name: pigo
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - main: ./cmd/pigo
+    binary: pigo
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/scotmcc/pigo/internal/keys.Version={{.Version}}
+      - -X github.com/scotmcc/pigo/internal/keys.Commit={{.ShortCommit}}
+      - -X github.com/scotmcc/pigo/internal/keys.Date={{.Date}}
+    # CGO is required for sqlite3. Cross-compilation needs target-specific
+    # C compilers, which we handle in the GitHub Actions workflow.
+    overrides:
+      - goos: darwin
+        goarch: arm64
+        env:
+          - CGO_ENABLED=1
+          - CC=o64-clang
+      - goos: darwin
+        goarch: amd64
+        env:
+          - CGO_ENABLED=1
+          - CC=o64-clang
+      - goos: linux
+        goarch: amd64
+        env:
+          - CGO_ENABLED=1
+          - CC=x86_64-linux-gnu-gcc
+      - goos: linux
+        goarch: arm64
+        env:
+          - CGO_ENABLED=1
+          - CC=aarch64-linux-gnu-gcc
+
+archives:
+  - format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - LICENSE
+      - docs/ARCHITECTURE.md
+      - docs/ROADMAP.md
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+
+release:
+  github:
+    owner: scotmcc
+    name: pigo
+  draft: false
+  prerelease: auto

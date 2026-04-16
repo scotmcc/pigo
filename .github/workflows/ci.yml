@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install C compiler for CGO (sqlite3)
+        run: sudo apt-get update && sudo apt-get install -y gcc
+
+      - name: Verify dependencies
+        run: go mod tidy && git diff --exit-code go.mod go.sum
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: make build
+
+      - name: Test
+        run: go test ./...
+
+      - name: Verify binary runs
+        run: ./pigo version
