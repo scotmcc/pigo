@@ -1,6 +1,5 @@
-# Binary
-pigo
-cmd/pigo/pigo
+# Binary (root only — don't ignore cmd/pigo/ source directory)
+/pigo
 dist/
 
 # Data files (never check in user data)
