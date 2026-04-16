@@ -13,11 +13,14 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import {
+	DEFAULT_MAX_BYTES,
+	DEFAULT_MAX_LINES,
+	formatSize,
+	truncateHead,
+} from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { createConnection, type Socket } from "net";
-import { existsSync } from "fs";
-import { homedir } from "os";
-import { join } from "path";
 
 // -------------------------------------------------------------------
 // Config
@@ -334,12 +337,26 @@ async function runViaCLI(pi: ExtensionAPI, command: string, args: Record<string,
 // Tool registration
 // -------------------------------------------------------------------
 
+// truncateOutput wraps tool result text with pi's standard truncation so a
+// very large vault result can't overflow the LLM's context. Uses truncateHead
+// because for all our read-ish tools the most relevant content is at the top
+// (search results ranked by score, list sorted by recency, etc.).
+function truncateOutput(text: string, hint = "Use a more specific query or read individual notes."): string {
+	const r = truncateHead(text, { maxLines: DEFAULT_MAX_LINES, maxBytes: DEFAULT_MAX_BYTES });
+	if (!r.truncated) return r.content;
+	return `${r.content}\n\n[Output truncated: ${r.outputLines}/${r.totalLines} lines, ${formatSize(r.outputBytes)}/${formatSize(r.totalBytes)}. ${hint}]`;
+}
+
 function registerVaultSearch(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "vault_search",
 		label: "Vault Search",
-		description: "Search the pigo knowledge vault by meaning, keywords, or tags. Returns ranked results.",
-		promptSnippet: "vault_search(q) — search the persistent knowledge vault",
+		description: "Search the pigo knowledge vault by meaning, keywords, or tags. Returns ranked results (semantic + fuzzy merged).",
+		promptSnippet: "vault_search(q, limit?) — search the persistent knowledge vault",
+		promptGuidelines: [
+			"Before answering a factual question about the user or this project, search the vault first — past conversations often answered it already.",
+			"Start with a broad query, then refine. Vault search is cheap.",
+		],
 		parameters: Type.Object({
 			q: Type.String({ description: "Search query" }),
 			limit: Type.Optional(Type.Number({ description: "Max results (default 10)" })),
@@ -347,7 +364,7 @@ function registerVaultSearch(pi: ExtensionAPI) {
 		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 			const data = await runCommand(pi, "vault.search", params);
 			return {
-				content: [{ type: "text" as const, text: formatSearchResults(data) }],
+				content: [{ type: "text" as const, text: truncateOutput(formatSearchResults(data)) }],
 				details: data,
 			};
 		},
@@ -359,7 +376,7 @@ function registerVaultRead(pi: ExtensionAPI) {
 		name: "vault_read",
 		label: "Vault Read",
 		description: "Read a note from the pigo vault by ID (slug).",
-		promptSnippet: "vault_read(id) — read a note from the knowledge vault",
+		promptSnippet: "vault_read(id) — read a full note from the knowledge vault",
 		parameters: Type.Object({
 			id: Type.String({ description: "Note ID (slug)" }),
 		}),
@@ -367,7 +384,7 @@ function registerVaultRead(pi: ExtensionAPI) {
 			const data = await runCommand(pi, "vault.read", params);
 			const text = typeof data === "string" ? data : data?.RawContent || JSON.stringify(data);
 			return {
-				content: [{ type: "text" as const, text }],
+				content: [{ type: "text" as const, text: truncateOutput(text, "Ask the user for a more specific section or rely on vault_search to narrow down.") }],
 				details: data,
 			};
 		},
@@ -378,18 +395,25 @@ function registerVaultWrite(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "vault_write",
 		label: "Vault Write",
-		description: "Create a new note in the pigo vault. The note is indexed, embedded, and committed to git.",
-		promptSnippet: "vault_write(title, body, tags?) — save knowledge to the vault",
+		description: "Create a new note in the pigo vault. The note is indexed, embedded, and committed to git automatically.",
+		promptSnippet: "vault_write(title, body, tags?) — save durable knowledge to the vault",
 		promptGuidelines: [
-			"When you learn something worth remembering across sessions, save it with vault_write.",
-			"Use descriptive titles and relevant tags so the note is findable later.",
-			"Use [[slug]] syntax to link to existing notes.",
+			"When you learn something worth remembering across sessions — a decision, a pattern, a preference — save it with vault_write.",
+			"Call vault_tags first and reuse existing tags; avoid creating near-duplicates like 'api' and 'apis'.",
+			"Link related notes with [[slug]] syntax in the body so the knowledge graph grows.",
+			"Check vault_search first to avoid duplicating a note that already exists.",
 		],
 		parameters: Type.Object({
 			title: Type.String({ description: "Note title" }),
 			body: Type.String({ description: "Note body (markdown)" }),
 			tags: Type.Optional(Type.Array(Type.String(), { description: "Tags for categorization" })),
 		}),
+		// Precedent hook for future schema migrations. If the vault.write arg
+		// shape ever changes, we can translate old arguments from resumed
+		// sessions here without breaking the public parameter schema.
+		prepareArguments(args) {
+			return args;
+		},
 		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 			const data = await runCommand(pi, "vault.write", params);
 			const text = typeof data === "string" ? data : `Created note: ${data?.ID || "unknown"}`;
@@ -405,7 +429,12 @@ function registerVaultEdit(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "vault_edit",
 		label: "Vault Edit",
-		description: "Update an existing note in the pigo vault. Provide new body and/or tags.",
+		description: "Update an existing note in the pigo vault. Provide new body and/or tags. Re-indexes, re-embeds, commits.",
+		promptSnippet: "vault_edit(id, body?, tags?) — update an existing vault note",
+		promptGuidelines: [
+			"Prefer vault_edit over vault_write when an existing note covers the topic — preserves links, tags, and history.",
+			"When in doubt, vault_read the current content first so your edit is additive rather than overwriting.",
+		],
 		parameters: Type.Object({
 			id: Type.String({ description: "Note ID (slug)" }),
 			body: Type.Optional(Type.String({ description: "New body content" })),
@@ -426,12 +455,16 @@ function registerVaultList(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "vault_list",
 		label: "Vault List",
-		description: "List all notes in the pigo vault with titles, tags, and dates.",
+		description: "List all notes in the pigo vault with titles, tags, and dates. Sorted by recency.",
+		promptSnippet: "vault_list() — browse everything in the vault",
+		promptGuidelines: [
+			"Prefer vault_search over vault_list once the vault has more than a few dozen notes — search is more focused.",
+		],
 		parameters: Type.Object({}),
 		async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
 			const data = await runCommand(pi, "vault.list", {});
 			return {
-				content: [{ type: "text" as const, text: formatListResults(data) }],
+				content: [{ type: "text" as const, text: truncateOutput(formatListResults(data)) }],
 				details: data,
 			};
 		},
@@ -443,6 +476,11 @@ function registerVaultLinks(pi: ExtensionAPI) {
 		name: "vault_links",
 		label: "Vault Links",
 		description: "Show all connections for a note: relates_to (auto-discovered), links_to ([[wiki-links]]), and backlinks.",
+		promptSnippet: "vault_links(id) — discover related notes through the knowledge graph",
+		promptGuidelines: [
+			"After reading an interesting note, call vault_links to surface related notes worth reading too.",
+			"Backlinks often point at more context — follow them when the user's question is under-specified.",
+		],
 		parameters: Type.Object({
 			id: Type.String({ description: "Note ID (slug)" }),
 		}),
@@ -461,14 +499,17 @@ function registerVaultTags(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "vault_tags",
 		label: "Vault Tags",
-		description: "List all tags used in the vault with note counts. Use this before tagging to stay consistent.",
+		description: "List all tags used in the vault with note counts. Use before tagging to stay consistent.",
 		promptSnippet: "vault_tags() — list existing tags before creating new ones",
+		promptGuidelines: [
+			"Always call vault_tags before creating a note with tags — reuse existing ones rather than inventing near-duplicates.",
+		],
 		parameters: Type.Object({}),
 		async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
 			const data = await runCommand(pi, "vault.tags", {});
 			const text = typeof data === "string" ? data : formatTagResults(data);
 			return {
-				content: [{ type: "text" as const, text }],
+				content: [{ type: "text" as const, text: truncateOutput(text, "The most-used tags are at the top; that's usually enough.") }],
 				details: data,
 			};
 		},
@@ -479,8 +520,11 @@ function registerWebSearch(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "web_search",
 		label: "Web Search",
-		description: "Search the web via SearXNG. Returns titles, URLs, and snippets. Use vault_import to save results.",
-		promptSnippet: "web_search(q) — search the web, then vault_import useful results",
+		description: "Search the web via SearXNG. Returns titles, URLs, and snippets.",
+		promptSnippet: "web_search(q, limit?) — search the web, then vault_import useful results",
+		promptGuidelines: [
+			"When a web result is worth keeping for later, follow up with pigo_command(command='vault.import', args={url: '...'}) so it lives in the vault with git history.",
+		],
 		parameters: Type.Object({
 			q: Type.String({ description: "Search query" }),
 			limit: Type.Optional(Type.Number({ description: "Max results (default 10)" })),
@@ -489,7 +533,7 @@ function registerWebSearch(pi: ExtensionAPI) {
 			const data = await runCommand(pi, "web.search", params);
 			const text = typeof data === "string" ? data : formatWebResults(data);
 			return {
-				content: [{ type: "text" as const, text }],
+				content: [{ type: "text" as const, text: truncateOutput(text, "Refine the query for fewer, more specific results.") }],
 				details: data,
 			};
 		},
@@ -500,7 +544,12 @@ function registerPigoCommand(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "pigo_command",
 		label: "Pigo Command",
-		description: "Execute any registered pigo command by name. Use system.methods to discover available commands.",
+		description: "Execute any registered pigo command by name. The escape hatch for commands without a dedicated tool.",
+		promptSnippet: "pigo_command(command, args?) — call any pigo command by name",
+		promptGuidelines: [
+			"Start with command='system.methods' if you don't know what commands exist.",
+			"Use this for vault.import (saving a URL to the vault) and for any new pigo commands that don't yet have dedicated tools.",
+		],
 		parameters: Type.Object({
 			command: Type.String({ description: "Command name (e.g. system.methods, vault.import)" }),
 			args: Type.Optional(Type.Record(Type.String(), Type.Any(), { description: "Command arguments" })),
@@ -509,7 +558,7 @@ function registerPigoCommand(pi: ExtensionAPI) {
 			const data = await runCommand(pi, params.command, params.args || {});
 			const text = typeof data === "string" ? data : JSON.stringify(data, null, 2);
 			return {
-				content: [{ type: "text" as const, text }],
+				content: [{ type: "text" as const, text: truncateOutput(text) }],
 				details: data,
 			};
 		},
