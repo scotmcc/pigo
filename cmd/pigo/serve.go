@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/scotmcc/pigo/internal/commands"
+	"github.com/scotmcc/pigo/internal/search"
 	"github.com/scotmcc/pigo/internal/server"
 	"github.com/spf13/cobra"
 )
@@ -35,6 +36,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 	cfg, err := loadConfig()
 	if err != nil {
 		return err
+	}
+
+	// Wire search client if configured.
+	if cfg.Search.URL != "" {
+		commands.SetSearchClient(search.NewClient(cfg.Search.URL))
 	}
 
 	// Start the HTTP server in a goroutine.

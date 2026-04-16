@@ -10,6 +10,7 @@ type Config struct {
 	Ollama OllamaConfig `toml:"ollama"`
 	Server ServerConfig `toml:"server"`
 	Git    GitConfig    `toml:"git"`
+	Search SearchConfig `toml:"search"`
 }
 
 // VaultConfig controls where markdown notes are stored.
@@ -39,4 +40,9 @@ type ServerConfig struct {
 type GitConfig struct {
 	AutoCommit bool   `toml:"auto_commit"`
 	Remote     string `toml:"remote"`
+}
+
+// SearchConfig controls the web search backend.
+type SearchConfig struct {
+	URL string `toml:"url"` // SearXNG instance URL (e.g. https://searxng.example.com)
 }

@@ -118,6 +118,9 @@ func writeDefaultConfig(path string) error {
 [git]
 # auto_commit = true
 # remote = ""
+
+[search]
+# url = "https://searxng.example.com"  # SearXNG instance for web search
 `
 	return os.WriteFile(path, []byte(content), 0644)
 }
