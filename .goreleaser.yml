@@ -11,8 +11,12 @@ builds:
     binary: pigo
     env:
       - CGO_ENABLED=1
+    # Linux-only for the MVP. sqlite3 + sqlite-vec need CGO, which means
+    # cross-compiling to darwin from the Ubuntu Action runner requires
+    # Apple's SDK via osxcross — not worth the complexity for v0.1.0.
+    # macOS users install via `go install github.com/scotmcc/pigo/cmd/pigo@latest`.
+    # Future: add a matrix runner on macos-latest to produce darwin binaries.
     goos:
-      - darwin
       - linux
     goarch:
       - amd64
@@ -22,19 +26,7 @@ builds:
       - -X github.com/scotmcc/pigo/internal/keys.Version={{.Version}}
       - -X github.com/scotmcc/pigo/internal/keys.Commit={{.ShortCommit}}
       - -X github.com/scotmcc/pigo/internal/keys.Date={{.Date}}
-    # CGO is required for sqlite3. Cross-compilation needs target-specific
-    # C compilers, which we handle in the GitHub Actions workflow.
     overrides:
-      - goos: darwin
-        goarch: arm64
-        env:
-          - CGO_ENABLED=1
-          - CC=o64-clang
-      - goos: darwin
-        goarch: amd64
-        env:
-          - CGO_ENABLED=1
-          - CC=o64-clang
       - goos: linux
         goarch: amd64
         env:
