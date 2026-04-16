@@ -24,15 +24,21 @@ type WriteResult struct {
 	FilePath string
 }
 
-// Write creates a new note in the vault.
-// It saves the file, indexes it, embeds chunks, and commits to git.
+// Write creates a new note in the vault using default frontmatter.
 func (s *Service) Write(input WriteInput) (*WriteResult, error) {
-	slug := slugify(input.Title)
+	fm := NewFrontmatter(input.Title, input.Tags)
+	return s.WriteWithFrontmatter(fm, input.Body)
+}
+
+// WriteWithFrontmatter creates a new note with custom frontmatter.
+// Used by Import (which sets type, source_url, etc.) and anything else
+// that needs non-default metadata.
+func (s *Service) WriteWithFrontmatter(fm Frontmatter, body string) (*WriteResult, error) {
+	slug := slugify(fm.Title)
 	if slug == "" {
 		return nil, fmt.Errorf("title produces empty slug")
 	}
 
-	// Check for ID collision.
 	existing, err := s.db.GetNote(slug)
 	if err != nil {
 		return nil, fmt.Errorf("check existing: %w", err)
@@ -41,9 +47,11 @@ func (s *Service) Write(input WriteInput) (*WriteResult, error) {
 		return nil, fmt.Errorf("note already exists: %s", slug)
 	}
 
-	// Build and render the markdown file.
-	fm := NewFrontmatter(input.Title, input.Tags)
-	content, err := RenderNote(fm, input.Body)
+	// Detect [[wiki-links]] in the body and record them.
+	fm.LinksTo = DetectWikiLinks(body)
+
+	// Render markdown file.
+	content, err := RenderNote(fm, body)
 	if err != nil {
 		return nil, err
 	}
@@ -56,12 +64,12 @@ func (s *Service) Write(input WriteInput) (*WriteResult, error) {
 	}
 
 	// Index in SQLite.
-	tagsJSON, _ := json.Marshal(input.Tags)
+	tagsJSON, _ := json.Marshal(fm.Tags)
 	now := time.Now().UTC()
 	note := db.Note{
 		ID:        slug,
 		FilePath:  relPath,
-		Title:     input.Title,
+		Title:     fm.Title,
 		Tags:      string(tagsJSON),
 		CreatedAt: now,
 		UpdatedAt: now,
@@ -71,13 +79,19 @@ func (s *Service) Write(input WriteInput) (*WriteResult, error) {
 	}
 
 	// Chunk, embed, and index.
-	if err := s.indexChunks(slug, input.Body); err != nil {
+	if err := s.indexChunks(slug, body); err != nil {
 		return nil, fmt.Errorf("index chunks: %w", err)
 	}
 
 	// Git commit.
-	if err := s.git.CommitFile(relPath, fmt.Sprintf("vault: %s [write]", input.Title)); err != nil {
+	if err := s.git.CommitFile(relPath, fmt.Sprintf("vault: %s [write]", fm.Title)); err != nil {
 		return nil, fmt.Errorf("git commit: %w", err)
+	}
+
+	// Discover relationships in the background.
+	// Non-fatal — the note is saved even if relationship discovery fails.
+	if err := s.discoverRelationships(slug); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: relationship discovery failed: %v\n", err)
 	}
 
 	return &WriteResult{ID: slug, FilePath: relPath}, nil
@@ -85,7 +99,6 @@ func (s *Service) Write(input WriteInput) (*WriteResult, error) {
 
 // indexChunks splits the body, embeds each chunk, and stores them in SQLite.
 func (s *Service) indexChunks(noteID string, body string) error {
-	// Remove old chunks first (for re-indexing on edit).
 	if err := s.db.DeleteChunksByNoteID(noteID); err != nil {
 		return err
 	}
@@ -99,8 +112,6 @@ func (s *Service) indexChunks(noteID string, body string) error {
 	for _, c := range chunks {
 		embedding, err := s.ollama.Embed(c.Content)
 		if err != nil {
-			// Don't fail — the note is still useful without embeddings.
-			// First failure logs the warning; subsequent chunks skip silently.
 			if len(dbChunks) == 0 {
 				fmt.Fprintf(os.Stderr, "warning: embeddings unavailable (Ollama not running) — note saved without semantic indexing\n")
 			}

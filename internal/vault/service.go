@@ -1,4 +1,4 @@
-// Package vault implements the four vault operations: read, write, edit, search.
+// Package vault implements the vault operations: read, write, edit, search, import, links.
 // This is a layer-2 package — it composes layer-1 calls (db, git, ollama).
 package vault
 
@@ -13,17 +13,14 @@ import (
 )
 
 // Service is the vault business logic layer.
-// It holds references to all three layer-1 dependencies.
 type Service struct {
 	db       *db.DB
 	git      *git.Repo
 	ollama   *ollama.Client
-	vaultDir string // root directory where markdown files live
+	vaultDir string
 }
 
 // NewService creates a vault service with its dependencies.
-// This is explicit dependency injection — no magic, no container.
-// The caller (main.go) creates the dependencies and passes them in.
 func NewService(database *db.DB, repo *git.Repo, ollamaClient *ollama.Client, vaultDir string) *Service {
 	return &Service{
 		db:       database,
@@ -33,12 +30,17 @@ func NewService(database *db.DB, repo *git.Repo, ollamaClient *ollama.Client, va
 	}
 }
 
-// writeRawFile writes raw content to a note's file on disk.
-// Used for frontmatter updates that bypass the normal write pipeline.
-func (s *Service) writeRawFile(id, content string) error {
+// updateNoteFile re-renders a note's frontmatter + body and commits the change.
+// Used for post-write updates like relationship discovery.
+func (s *Service) updateNoteFile(id string, fm Frontmatter, body string, commitMsg string) error {
 	note, err := s.db.GetNote(id)
 	if err != nil || note == nil {
 		return fmt.Errorf("note not found: %s", id)
+	}
+
+	content, err := RenderNote(fm, body)
+	if err != nil {
+		return err
 	}
 
 	fullPath := filepath.Join(s.vaultDir, note.FilePath)
@@ -46,6 +48,5 @@ func (s *Service) writeRawFile(id, content string) error {
 		return fmt.Errorf("write file: %w", err)
 	}
 
-	// Commit the update.
-	return s.git.CommitFile(note.FilePath, fmt.Sprintf("vault: %s [import metadata]", note.Title))
+	return s.git.CommitFile(note.FilePath, commitMsg)
 }
