@@ -24,6 +24,16 @@ make build
 
 # Start the server (for real-time extension support)
 ./pigo serve
+
+# Stop a running server
+./pigo stop
+
+# Check daemon + dependency status later
+./pigo status
+./pigo doctor
+
+# Re-check integrations, prompt to upgrade pi if a newer one is out
+./pigo upgrade
 ```
 
 Or install from source if you have Go:
@@ -35,9 +45,9 @@ pigo install
 
 ## What It Does
 
-Most AI memory is disposable. The session opens, the AI reads some context, the session closes. Next time, it starts from zero.
+Most AI chat sessions start from zero. You explain your project, your preferences, your history; next session you explain them again. Cloud AI memory features help, but they're proprietary, vendor-locked, and off-limits for any code under real compliance constraints.
 
-pigo is different. It runs a vault of markdown notes, indexed for semantic search, versioned with git, with facts extracted automatically over time. The AI doesn't just query the knowledge — it *builds* it.
+pigo runs a local vault of markdown notes, indexed for semantic search and versioned with git. Any AI agent with pigo tools can read from and write to it. The knowledge stays on your machine as plain files — inspectable, portable, and unaffected by a vendor's product decisions.
 
 **Three ways to use it:**
 
@@ -62,9 +72,8 @@ One binary. No Docker. No Postgres. No cloud dependency.
 
 ## Requirements
 
-- **Go 1.21+** (to build from source)
-- **Ollama** running locally (optional — fuzzy search works without it, semantic search needs embeddings)
-- A C compiler (for SQLite CGO — comes with Xcode on macOS, `gcc` on Linux)
+- **Ollama** running locally with an embedding model pulled. This is effectively required — fuzzy search works without it, but the "AI builds the knowledge" story assumes semantic retrieval. `pigo install` detects Ollama and offers to pull `nomic-embed-text` automatically.
+- To build from source: **Go 1.21+** and a C compiler (sqlite-vec needs CGO — Xcode on macOS, `gcc` on Linux). Prebuilt Linux binaries are shipped via GitHub Releases; macOS prebuilt binaries are coming (see ROADMAP).
 
 ## The Vault
 
@@ -100,6 +109,10 @@ curl -X POST http://localhost:14159/command \
 curl -X POST http://localhost:14159/command \
   -d '{"command": "system.methods"}'
 ```
+
+### Trust model
+
+pigo binds to `127.0.0.1` and has no authentication. The trust boundary is the local machine — anything with shell access to your user can already read the vault directly, so HTTP/pipe add nothing for an attacker already inside. If you change `host` in `config.toml` to bind beyond localhost, you've taken on the auth problem yourself; pigo doesn't try to solve it.
 
 ## Configuration
 

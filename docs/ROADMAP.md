@@ -2,7 +2,43 @@
 
 Milestone-driven, not date-driven. Each phase delivers something usable. Later phases depend on earlier ones but each phase stands on its own.
 
-**Status:** Phases 0–3 complete (vault, server, async pipe, pi extension, ollama extension, claude skill, install system, build/release pipeline). Phase 3c (knowledge graph), Phase 3d (soul system), Phase 5 (web import), and Phase 5b (web search) also complete. Phase 4 (facts) is deferred pending design review. Jobs (Phase 6) is the next major phase. Working toward v0.1.0 release readiness in parallel — feature polish is largely in place (auto-init, graceful Ollama fallback, `--json` output, vault tests all landed); the remaining work is **install automation**: bundle sqlite-vec, detect and optionally pull/install Ollama + embedding model + pi, and ship `pigo doctor` for one-glance health. Principle: ask-then-offer, never make the user figure it out.
+**Status:** **v0.1.0 shipped** (tag pushed 2026-04-16). Linux release binaries via GoReleaser. macOS users install via `go install`. Phases 0–3 complete plus 3c (knowledge graph), 3d (soul system), 5 (web import), 5b (web search). Phase 4 (facts) deferred pending design review. Next focus: **post-v0.1.0 hardening** (below) based on external review — provenance, prompt-injection defense, embedding model pinning, macOS binaries, pitch/positioning fixes. Jobs (Phase 6) follows.
+
+---
+
+## Post-v0.1.0 — Honesty, Security, Provenance **[NEXT]**
+
+**Delivers:** A tighter, more honest, more auditable v0.2. Everything in this bucket came out of external review of the v0.1.0 repo and the original positioning doc. None of it is a research problem; all of it is shippable in incremental commits.
+
+**What gets built:**
+
+### Provenance and vault quality
+- **Source frontmatter field** — `source: human | ai | imported | external` on every note. Default stamped by whichever path creates the note (`vault.write` called by AI → `ai`; `vault.import` → `imported`; manual file creation → `human`).
+- **`--source` filter on search** — `pigo vault search q --source=human` lets a user pull only curated content when context is tight. Cheapest hedge against the "vault rot" failure mode.
+- **`pigo vault gc`** — optional garbage-collect pass: detect near-duplicate notes for review, optionally squash trivial AI-only commit churn. Doesn't solve AI-write-quality; gives the user a periodic cleanup lever.
+
+### Security
+- **Import safety** — `vault.import` stamps `source: external` and adds a prompt guideline treating imported content as data not instructions. Closes the prompt-injection path where a malicious URL becomes trusted context on later searches.
+- **Threat model in README** — shipped 2026-04-16 as part of this push: localhost-only, no auth, machine is the trust boundary, binding beyond localhost means you own the auth problem.
+
+### Correctness
+- **Embedding model pinning** — store the model name (and ideally a hash) in the chunks table. On `pigo serve` / `pigo install`, detect mismatch with the configured model and offer to reindex. Prevents silent search degradation on model upgrade.
+
+### Distribution
+- **macOS release binaries** — matrix runner on `macos-latest` in `.github/workflows/release.yml` so Mac users don't need Go + CGO just to try pigo. Biggest remaining install-friction win.
+
+### Discoverability and voice
+- **`pigo examples` command** — printable cheat sheet of common workflows. Low-effort win for newcomers.
+- **Pitch/README voice alignment** — README's "here's what it is, here are the commands, stop" voice carried through any external pitch text. README updated in this push; positioning doc/external pitch is a follow-up.
+- **Positioning for compliance-constrained teams** — make explicit (in README or sibling doc) that pigo is the memory layer for shops that can't use cloud AI memory. This is the real wedge and the current doc doesn't say so.
+
+### Larger origin story
+- **Name the Gaia relationship** somewhere public-facing. "pigo is the memory layer extracted from a larger multi-agent system, packaged standalone for teams that need local AI memory" answers the sustainability question a reader will ask. Scot decides what to expose.
+
+**Explicitly deferred to v0.3:**
+- **Curation mode** — AI writes land in `pending/`, a human commits them before they enter the searchable vault. Addresses vault rot more fully but changes daily-use workflow and needs design work. Revisit after provenance + gc land and we see how the vault ages under real use.
+
+**Dependencies:** Phase 1 (vault), Phase 5 (web import for source-marking), release workflow (for macOS binaries).
 
 ---
 
